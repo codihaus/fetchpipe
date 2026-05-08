@@ -80,33 +80,67 @@ try {
 
 ---
 
+## Connector Folder Structure
+
+Group commands by **operation** → **resource**. Each resource is one file. Re-export everything from barrel `index.ts`.
+
+```
+strapi/
+├── init.ts                     # createClient + plugins
+├── index.ts                    # barrel — re-exports init + all commands
+├── types/
+│   ├── index.ts
+│   ├── article.ts
+│   ├── category.ts
+│   ├── contact.ts
+│   ├── config.ts
+│   └── media.ts
+└── commands/
+    ├── index.ts                # barrel — re-exports all commands
+    ├── read/
+    │   ├── article.ts          # getArticles, getArticle, getArticleBySlug
+    │   ├── category.ts         # getCategories, getCategory
+    │   └── config.ts           # getSiteConfig
+    ├── create/
+    │   ├── article.ts          # createArticle
+    │   ├── contact.ts          # createContact
+    │   └── media.ts            # uploadMedia
+    ├── update/
+    │   ├── article.ts          # updateArticle
+    │   └── config.ts           # updateSiteConfig
+    └── delete/
+        └── article.ts          # deleteArticle
+```
+
+**Naming conventions:**
+- `init.ts` — client setup only, no commands
+- `types/` — one file per resource, barrel re-exports all
+- `commands/<operation>/<resource>.ts` — one file per resource per operation
+- Operation folders: `read`, `create`, `update`, `delete`
+- Command names: `<verb><Resource>` — `getArticles`, `createContact`, `updateArticle`, `deleteArticle`
+
+---
+
 ## Example: Strapi v4 API Connector
 
 Strapi v4 wraps responses in `{ data, meta }`. Use `extractResponse: 'wrapped:data'` to auto-unwrap.
 
-### Setup
+### `strapi/init.ts`
 
 ```ts
-// lib/strapi.ts
 import { createClient, rest, bearerAuth, retry, logger } from '@codihaus/fetchpipe'
 
-const strapi = createClient('https://cms.example.com/api')
+export const strapi = createClient('https://cms.example.com/api')
   .with(rest({ extractResponse: 'wrapped:data' }))
   .with(bearerAuth(process.env.STRAPI_API_TOKEN!))
   .with(retry({ maxRetries: 2 }))
   .with(logger())
-
-export { strapi }
 ```
 
-### Types
+### `strapi/types/article.ts`
 
 ```ts
-// types/strapi.ts
-export interface StrapiEntity<T> {
-  id: number
-  attributes: T
-}
+import type { StrapiEntity, Category } from './index'
 
 export interface Article {
   title: string
@@ -115,24 +149,40 @@ export interface Article {
   publishedAt: string
   category?: { data: StrapiEntity<Category> | null }
 }
+```
 
+### `strapi/types/category.ts`
+
+```ts
 export interface Category {
   name: string
   slug: string
 }
+```
 
+### `strapi/types/contact.ts`
+
+```ts
 export interface ContactSubmission {
   name: string
   email: string
   message: string
 }
+```
 
+### `strapi/types/config.ts`
+
+```ts
 export interface SiteConfig {
   siteName: string
   description: string
   maintenanceMode: boolean
 }
+```
 
+### `strapi/types/media.ts`
+
+```ts
 export interface MediaFile {
   name: string
   url: string
@@ -141,14 +191,27 @@ export interface MediaFile {
 }
 ```
 
-### Commands
+### `strapi/types/index.ts`
 
 ```ts
-// commands/strapi.ts
-import type { Command } from '@codihaus/fetchpipe'
-import type { StrapiEntity, Article, Category, ContactSubmission, SiteConfig, MediaFile } from '../types/strapi'
+export interface StrapiEntity<T> {
+  id: number
+  attributes: T
+}
 
-// GET /articles?populate=category&sort=publishedAt:desc&pagination[page]=1&pagination[pageSize]=25
+export type { Article } from './article'
+export type { Category } from './category'
+export type { ContactSubmission } from './contact'
+export type { SiteConfig } from './config'
+export type { MediaFile } from './media'
+```
+
+### `strapi/commands/read/article.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+import type { StrapiEntity, Article } from '../../types'
+
 export const getArticles = (
   page = 1,
   pageSize = 25,
@@ -162,7 +225,6 @@ export const getArticles = (
   },
 })
 
-// GET /articles/:id?populate=category
 export const getArticle = (
   id: number,
 ): Command<StrapiEntity<Article>> => () => ({
@@ -171,13 +233,70 @@ export const getArticle = (
   params: { populate: 'category' },
 })
 
-// GET /categories
+export const getArticleBySlug = (
+  slug: string,
+): Command<StrapiEntity<Article>[]> => () => ({
+  path: '/articles',
+  method: 'GET',
+  params: {
+    'filters[slug][$eq]': slug,
+    populate: 'category',
+  },
+})
+```
+
+### `strapi/commands/read/category.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+import type { StrapiEntity, Category } from '../../types'
+
 export const getCategories = (): Command<StrapiEntity<Category>[]> => () => ({
   path: '/categories',
   method: 'GET',
 })
 
-// POST /contact-submissions
+export const getCategory = (
+  id: number,
+): Command<StrapiEntity<Category>> => () => ({
+  path: `/categories/${id}`,
+  method: 'GET',
+})
+```
+
+### `strapi/commands/read/config.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+import type { StrapiEntity, SiteConfig } from '../../types'
+
+export const getSiteConfig = (): Command<StrapiEntity<SiteConfig>> => () => ({
+  path: '/site-config',
+  method: 'GET',
+})
+```
+
+### `strapi/commands/create/article.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+import type { StrapiEntity, Article } from '../../types'
+
+export const createArticle = (
+  payload: Omit<Article, 'publishedAt'>,
+): Command<StrapiEntity<Article>> => () => ({
+  path: '/articles',
+  method: 'POST',
+  body: JSON.stringify({ data: payload }),
+})
+```
+
+### `strapi/commands/create/contact.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+import type { StrapiEntity, ContactSubmission } from '../../types'
+
 export const createContact = (
   payload: ContactSubmission,
 ): Command<StrapiEntity<ContactSubmission>> => () => ({
@@ -185,67 +304,14 @@ export const createContact = (
   method: 'POST',
   body: JSON.stringify({ data: payload }),
 })
-
-// GET /site-config (single type)
-export const getSiteConfig = (): Command<StrapiEntity<SiteConfig>> => () => ({
-  path: '/site-config',
-  method: 'GET',
-})
-
-// PUT /articles/:id
-export const updateArticle = (
-  id: number,
-  payload: Partial<Article>,
-): Command<StrapiEntity<Article>> => () => ({
-  path: `/articles/${id}`,
-  method: 'PUT',
-  body: JSON.stringify({ data: payload }),
-})
-
-// DELETE /articles/:id
-export const deleteArticle = (
-  id: number,
-): Command<void> => () => ({
-  path: `/articles/${id}`,
-  method: 'DELETE',
-})
 ```
 
-### Usage
+### `strapi/commands/create/media.ts`
 
 ```ts
-import { strapi } from './lib/strapi'
-import { getArticles, getArticle, createContact, updateArticle, deleteArticle } from './commands/strapi'
-import { withHeaders, withOptions } from '@codihaus/fetchpipe'
+import type { Command } from '@codihaus/fetchpipe'
+import type { MediaFile } from '../../types'
 
-// List articles
-const articles = await strapi.request(getArticles(1, 10))
-
-// Single article
-const article = await strapi.request(getArticle(42))
-
-// Create contact with extra header
-const contact = await strapi.request(
-  withHeaders(createContact({ name: 'John', email: 'john@example.com', message: 'Hello' }), {
-    'X-Request-Source': 'website',
-  })
-)
-
-// Update with timeout
-const updated = await strapi.request(
-  withOptions(updateArticle(42, { title: 'New Title' }), {
-    signal: AbortSignal.timeout(5000),
-  })
-)
-
-// Delete
-await strapi.request(deleteArticle(42))
-```
-
-### File Upload (multipart)
-
-```ts
-// Set Content-Type to 'multipart/form-data' — fetchpipe auto-removes it so the browser sets the boundary
 export const uploadMedia = (file: File, folder?: string): Command<MediaFile[]> => () => {
   const form = new FormData()
   form.append('files', file)
@@ -258,6 +324,95 @@ export const uploadMedia = (file: File, folder?: string): Command<MediaFile[]> =
     body: form,
   }
 }
+```
+
+### `strapi/commands/update/article.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+import type { StrapiEntity, Article } from '../../types'
+
+export const updateArticle = (
+  id: number,
+  payload: Partial<Article>,
+): Command<StrapiEntity<Article>> => () => ({
+  path: `/articles/${id}`,
+  method: 'PUT',
+  body: JSON.stringify({ data: payload }),
+})
+```
+
+### `strapi/commands/update/config.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+import type { StrapiEntity, SiteConfig } from '../../types'
+
+export const updateSiteConfig = (
+  payload: Partial<SiteConfig>,
+): Command<StrapiEntity<SiteConfig>> => () => ({
+  path: '/site-config',
+  method: 'PUT',
+  body: JSON.stringify({ data: payload }),
+})
+```
+
+### `strapi/commands/delete/article.ts`
+
+```ts
+import type { Command } from '@codihaus/fetchpipe'
+
+export const deleteArticle = (id: number): Command<void> => () => ({
+  path: `/articles/${id}`,
+  method: 'DELETE',
+})
+```
+
+### `strapi/commands/index.ts`
+
+```ts
+export { getArticles, getArticle, getArticleBySlug } from './read/article'
+export { getCategories, getCategory } from './read/category'
+export { getSiteConfig } from './read/config'
+export { createArticle } from './create/article'
+export { createContact } from './create/contact'
+export { uploadMedia } from './create/media'
+export { updateArticle } from './update/article'
+export { updateSiteConfig } from './update/config'
+export { deleteArticle } from './delete/article'
+```
+
+### `strapi/index.ts`
+
+```ts
+export { strapi } from './init'
+export * from './commands'
+export type * from './types'
+```
+
+### Usage
+
+```ts
+import { strapi, getArticles, getArticle, createContact, updateArticle, deleteArticle } from './strapi'
+import { withHeaders, withOptions } from '@codihaus/fetchpipe'
+
+const articles = await strapi.request(getArticles(1, 10))
+
+const article = await strapi.request(getArticle(42))
+
+const contact = await strapi.request(
+  withHeaders(createContact({ name: 'John', email: 'john@example.com', message: 'Hello' }), {
+    'X-Request-Source': 'website',
+  })
+)
+
+const updated = await strapi.request(
+  withOptions(updateArticle(42, { title: 'New Title' }), {
+    signal: AbortSignal.timeout(5000),
+  })
+)
+
+await strapi.request(deleteArticle(42))
 ```
 
 ## Rules for Agents
