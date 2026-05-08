@@ -2,7 +2,7 @@
 
 Composable, zero-dependency API client foundation. Build type-safe clients for **any** REST API by plugging together small, focused modules.
 
-![Architecture](./assets/architecture.png)
+![Architecture](https://raw.githubusercontent.com/codihaus/fetchpipe/prod/assets/architecture.png)
 
 
 ## Why
