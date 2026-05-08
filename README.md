@@ -30,13 +30,13 @@ Every new project, you rewrite the same fetch wrapper, token management, retry l
 ## Install
 
 ```bash
-npm install fetchpipe
+npm install @codihaus/fetchpipe
 ```
 
 ## Quick Start
 
 ```ts
-import { createClient, rest, bearerAuth, type Command } from 'fetchpipe'
+import { createClient, rest, bearerAuth, type Command } from '@codihaus/fetchpipe'
 
 const api = createClient('https://api.example.com')
   .with(rest())
@@ -125,7 +125,7 @@ Request/response logging. Must compose **after** `rest()`.
 ## Command Decorators
 
 ```ts
-import { withHeaders, withToken, withOptions, endpoint } from 'fetchpipe'
+import { withHeaders, withToken, withOptions, endpoint } from '@codihaus/fetchpipe'
 
 withHeaders(cmd, { 'X-Custom': 'value' })    // inject headers
 withToken(cmd, 'override-token')              // override auth
@@ -174,7 +174,7 @@ createClient(url, {
 ## Error Handling
 
 ```ts
-import { isApiError } from 'fetchpipe'
+import { isApiError } from '@codihaus/fetchpipe'
 
 try {
   await api.request(cmd())
