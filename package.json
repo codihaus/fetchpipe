@@ -1,5 +1,5 @@
 {
-  "name": "fetchpipe",
+  "name": "@codihausvn/fetchpipe",
   "version": "0.1.0",
   "description": "Composable, zero-dependency API client SDK foundation",
   "license": "MIT",
