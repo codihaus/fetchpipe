@@ -1,6 +1,6 @@
 export { createClient } from './client.js';
 
-export { rest, bearerAuth, sessionAuth, memoryStorage, retry, logger } from './plugins/index.js';
+export { rest, bearerAuth, sessionAuth, memoryStorage, retry, timeout, logger } from './plugins/index.js';
 export type {
 	RestConfig,
 	RestClient,
@@ -12,6 +12,8 @@ export type {
 	AuthStorage,
 	RetryConfig,
 	RetryClient,
+	TimeoutConfig,
+	TimeoutClient,
 	LoggerConfig,
 	LoggerClient,
 } from './plugins/index.js';
@@ -19,10 +21,11 @@ export type {
 export { withHeaders, withToken, withOptions, endpoint } from './helpers/index.js';
 
 export { ApiError, isApiError } from './utils/errors.js';
-export type { ApiErrorData, ApiErrorDetail } from './utils/errors.js';
+export type { ApiErrorData, ApiErrorDetail, ApiErrorCode } from './utils/errors.js';
 export { extractJson, extractWrapped, extractRaw } from './utils/response.js';
 export type { ResponseExtractor } from './utils/response.js';
-export type { ExtractResponseOption } from './utils/request.js';
+export { defaultExtractError } from './utils/request.js';
+export type { ExtractResponseOption, ErrorExtractor } from './utils/request.js';
 
 export type {
 	ApiClient,

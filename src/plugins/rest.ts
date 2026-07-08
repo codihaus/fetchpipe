@@ -2,13 +2,15 @@ import type { ApiClient } from '../types/client.js';
 import type { Command } from '../types/command.js';
 import type { RequestInterceptor, ResponseInterceptor } from '../types/interceptor.js';
 import { buildUrl } from '../utils/url.js';
-import { request, resolveExtractor, type ExtractResponseOption } from '../utils/request.js';
+import { request, resolveExtractor, type ExtractResponseOption, type ErrorExtractor } from '../utils/request.js';
 
 export interface RestConfig {
 	credentials?: RequestCredentials;
 	onRequest?: RequestInterceptor;
 	onResponse?: ResponseInterceptor;
 	extractResponse?: ExtractResponseOption;
+	/** Build the thrown `ApiError` from a non-2xx response — keeps provider error bodies faithful. */
+	extractError?: ErrorExtractor;
 }
 
 export interface RestClient<_Schema> {
@@ -56,6 +58,10 @@ export const rest = (config: Partial<RestConfig> = {}) => {
 					fetchOptions.body = options.body;
 				}
 
+				if (options.signal) {
+					fetchOptions.signal = options.signal;
+				}
+
 				if (options.onRequest) {
 					fetchOptions = await options.onRequest(fetchOptions);
 				}
@@ -64,7 +70,13 @@ export const rest = (config: Partial<RestConfig> = {}) => {
 					fetchOptions = await config.onRequest(fetchOptions);
 				}
 
-				let result = await request<Output>(requestUrl.toString(), fetchOptions, client.globals.fetch, extractor);
+				let result = await request<Output>(
+					requestUrl.toString(),
+					fetchOptions,
+					client.globals.fetch,
+					extractor,
+					config.extractError,
+				);
 
 				if (options.onResponse) {
 					result = await options.onResponse(result, fetchOptions);

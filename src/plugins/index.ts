@@ -10,5 +10,8 @@ export type { SessionAuthConfig, SessionAuthClient, AuthData, AuthStorage } from
 export { retry } from './retry.js';
 export type { RetryConfig, RetryClient } from './retry.js';
 
+export { timeout } from './timeout.js';
+export type { TimeoutConfig, TimeoutClient } from './timeout.js';
+
 export { logger } from './logger.js';
 export type { LoggerConfig, LoggerClient } from './logger.js';

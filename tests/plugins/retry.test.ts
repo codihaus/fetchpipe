@@ -125,4 +125,67 @@ describe('retry()', () => {
 		expect(result).toEqual({ data: 'ok' });
 		expect(fetch).toHaveBeenCalledTimes(1);
 	});
+
+	it('uses injected sleep and computes exponential backoff delays', async () => {
+		const sleep = vi.fn().mockResolvedValue(undefined);
+
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ errors: [{ message: 'Server Error' }] }), {
+				status: 500,
+				headers: { 'Content-Type': 'application/json' },
+			}),
+		);
+
+		const client = createClient('https://api.test.com', { globals: { fetch } })
+			.with(rest())
+			.with(retry({ maxRetries: 2, baseDelay: 100, sleep }));
+
+		await expect(client.request(() => ({ path: '/fail', method: 'GET' }))).rejects.toThrow();
+
+		// no real waiting; delays are 100 * 2^0 then 100 * 2^1
+		expect(sleep.mock.calls.map((c) => c[0])).toEqual([100, 200]);
+	});
+
+	it('fires onRetry for each retry and swallows hook exceptions', async () => {
+		const sleep = vi.fn().mockResolvedValue(undefined);
+		const onRetry = vi.fn(() => {
+			throw new Error('hook boom');
+		});
+
+		const fetch = vi.fn().mockImplementation(async () =>
+			new Response(JSON.stringify({ errors: [{ message: 'Server Error' }] }), {
+				status: 500,
+				headers: { 'Content-Type': 'application/json' },
+			}),
+		);
+
+		const client = createClient('https://api.test.com', { globals: { fetch } })
+			.with(rest())
+			.with(retry({ maxRetries: 2, baseDelay: 10, sleep, onRetry }));
+
+		await expect(client.request(() => ({ path: '/fail', method: 'GET' }))).rejects.toThrow('Server Error');
+
+		expect(onRetry).toHaveBeenCalledTimes(2);
+		expect(onRetry.mock.calls[0]![1]).toBe(0); // attempt index
+		expect(onRetry.mock.calls[0]![2]).toBe(10); // delayMs
+	});
+
+	it('applies a custom jitter function to the delay', async () => {
+		const sleep = vi.fn().mockResolvedValue(undefined);
+
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ errors: [{ message: 'Server Error' }] }), {
+				status: 500,
+				headers: { 'Content-Type': 'application/json' },
+			}),
+		);
+
+		const client = createClient('https://api.test.com', { globals: { fetch } })
+			.with(rest())
+			.with(retry({ maxRetries: 1, baseDelay: 100, sleep, jitter: (d) => d / 2 }));
+
+		await expect(client.request(() => ({ path: '/fail', method: 'GET' }))).rejects.toThrow();
+
+		expect(sleep).toHaveBeenCalledWith(50);
+	});
 });

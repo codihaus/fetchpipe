@@ -11,7 +11,7 @@ npm install @codihaus/fetchpipe
 ## Core Concepts
 
 1. **`createClient(url)`** — creates a base client with `.with()` for composing plugins
-2. **Plugins** — `rest()`, `bearerAuth()`, `sessionAuth()`, `retry()`, `logger()`
+2. **Plugins** — `rest()`, `bearerAuth()`, `sessionAuth()`, `retry()`, `timeout()`, `logger()`
 3. **Commands** — functions returning `RequestOptions` (path, method, params, body, headers)
 4. **Decorators** — `withHeaders()`, `withToken()`, `withOptions()` to modify commands without mutation
 
@@ -21,9 +21,15 @@ npm install @codihaus/fetchpipe
 rest()         → FIRST — provides .request()
 bearerAuth()   → any position — auto-discovered by rest() via duck typing
 sessionAuth()  → any position — same as bearerAuth
+timeout()      → AFTER rest(), BEFORE retry() — fresh AbortController per attempt
 retry()        → AFTER rest() — wraps .request()
 logger()       → LAST — wraps outermost (onion model)
 ```
+
+Recipes:
+- `rest → timeout → retry` — bounded time, fresh timeout every retry attempt
+- `rest → logger → retry` — log every attempt; `rest → retry → logger` — log final outcome only
+- `rest → sessionAuth → retry({ maxRetries: 1, retryOn: 401 })` — refresh-then-retry once
 
 ## Response Extraction
 
@@ -48,6 +54,8 @@ interface RequestOptions {
   params?: Record<string, any>   // query string — objects become key[subKey], arrays join with comma
   headers?: Record<string, string>
   body?: BodyInit | null
+  signal?: AbortSignal            // caller cancellation — combined with timeout() (first to fire wins)
+  timeoutMs?: number              // per-command override of the timeout() default
   onRequest?: (init: RequestInit) => RequestInit
   onResponse?: (data: any, init: RequestInit) => any
 }
@@ -73,10 +81,23 @@ try {
     err.status    // HTTP status code
     err.errors    // ApiErrorDetail[]
     err.response  // raw Response
-    err.code      // 'NETWORK_ERROR' for fetch failures
+    err.body      // bounded snippet of the raw error body
+    err.code      // stable taxonomy — see below
   }
 }
 ```
+
+**`err.code` taxonomy** (public contract):
+
+| code | meaning |
+|---|---|
+| `HTTP_ERROR` | non-2xx with `status` set |
+| `NETWORK_ERROR` | fetch rejected (DNS, connection reset, TLS...) |
+| `TIMEOUT` | aborted by `timeout()` plugin |
+| `ABORTED` | aborted by caller `signal` |
+| `PARSE_ERROR` | extractor failed on a 2xx body (invalid JSON etc.) |
+
+Customise the error body mapping with `rest({ extractError: (response, body) => ApiErrorData })` — default reads JSON `message` / `error.message`, falls back to `statusText`.
 
 ---
 
@@ -425,4 +446,26 @@ await strapi.request(deleteArticle(42))
 6. `params` supports nested objects (`{ pagination: { page: 1 } }` → `pagination[page]=1`) and arrays (`[1,2]` → `1,2`)
 7. Compose `retry()` and `logger()` **after** `rest()` — they wrap `.request()`
 8. Use `withHeaders()`, `withToken()`, `withOptions()` to decorate commands per-request without mutating the original
-9. Handle errors with `isApiError(err)` — check `err.status` for HTTP codes, `err.code` for network failures
+9. Handle errors with `isApiError(err)` — check `err.status` for HTTP codes, `err.code` for the stable taxonomy (`HTTP_ERROR`, `NETWORK_ERROR`, `TIMEOUT`, `ABORTED`, `PARSE_ERROR`)
+10. For per-request timeouts, compose `timeout({ ms })` between `rest()` and `retry()`; override per command with `timeoutMs`, cancel with `signal`
+
+
+Mỗi lần tích hợp API bên thứ 3, dù có gọn đến mấy thì cuối cùng cũng đều dính chung một chỗ: connection config và endpoint logic nó dính vào nhau.
+Token gắn ở đâu? Retry handle chỗ nào? Base URL set ở file nào? Rồi endpoint thì viết thẳng vào cùng chỗ đó luôn. Sửa connection thì sợ vỡ endpoint. Thêm endpoint thì phải hiểu cả cục connection đang setup kiểu gì.
+Chưa kể mỗi API config khác nhau — cái thì bearer token, cái thì session, cái trả { data: ... }, cái trả flat JSON. Mà tất cả đều nằm lẫn lộn trong một đống. fetchpipe tách hai thứ đó ra hoàn toàn.
+
+Connection config — riêng:
+const strapi = createClient('https://cms.example.com/api')
+  .with(rest({ extractResponse: 'wrapped:data' }))
+  .with(bearerAuth(token))
+  .with(retry())
+
+Endpoint commands — riêng:
+const getArticles = (page = 1): Command<Article[]> => () => ({
+  path: '/articles',
+  params: { pagination: { page } },
+})
+
+Hai lớp không biết gì về nhau. Connection lo auth, retry, response format. Command chỉ mô tả "gọi gì, gửi gì". Lúc chạy mới gặp nhau:
+await strapi.request(getArticles())
+Thêm API mới? Tạo connection mới, viết command mới. Không đụng gì nhau. Đổi auth strategy? Sửa connection, command không cần biết.

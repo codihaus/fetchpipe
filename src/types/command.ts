@@ -6,6 +6,10 @@ export interface RequestOptions {
 	params?: Record<string, any>;
 	headers?: Record<string, string>;
 	body?: BodyInit | null;
+	/** Caller-supplied abort signal. Combined with the `timeout()` plugin — whichever fires first wins. */
+	signal?: AbortSignal;
+	/** Per-command timeout in ms, overriding the `timeout()` plugin default. */
+	timeoutMs?: number;
 	onRequest?: RequestTransformer;
 	onResponse?: ResponseTransformer;
 }

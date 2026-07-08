@@ -111,8 +111,34 @@ Exponential backoff. Must compose **after** `rest()`.
   baseDelay: 300,      // ms, default
   maxDelay: 10000,     // ms, default
   retryOn: (error, attempt) => error.status >= 500,
+  onRetry: (error, attempt, delayMs) => metrics.inc('retry'), // observability — exceptions swallowed
+  jitter: true,        // full jitter (0..delay) to avoid thundering-herd; or (delay) => number
+  sleep: (ms) => Promise.resolve(),   // inject for deterministic tests (default: setTimeout)
 }))
 ```
+
+Default `retryOn` retries `status >= 500` and `NETWORK_ERROR`. Opt into timeouts:
+
+```ts
+retryOn: (e) => isApiError(e) && (e.code === 'TIMEOUT' || e.code === 'NETWORK_ERROR' || (e.status ?? 0) >= 500)
+```
+
+### `timeout(config?)`
+
+Bounds each request in time via a fresh `AbortController` **per attempt**. Compose **after** `rest()` and — for a fresh timeout on every retry — **before** `retry()`.
+
+```ts
+createClient(url)
+  .with(rest())
+  .with(timeout({ ms: 10_000 }))   // default for every request
+  .with(retry({ retryOn: (e) => isApiError(e) && e.code === 'TIMEOUT' }))
+
+// Per-command override:
+await api.request(withOptions(cmd(), {}))          // or set timeoutMs on the command:
+const slowCmd = (): Command<T> => () => ({ path: '/report', timeoutMs: 60_000 })
+```
+
+On timeout, throws `ApiError` with `code: 'TIMEOUT'`. A caller-supplied `RequestOptions.signal` is combined with the timeout signal (whichever fires first wins); a caller abort surfaces as `code: 'ABORTED'`.
 
 ### `logger(config?)`
 
@@ -182,10 +208,64 @@ try {
   if (isApiError(err)) {
     err.message   // first error message
     err.status    // HTTP status
+    err.code      // stable taxonomy (see below)
     err.errors    // error details array
     err.response  // raw Response
+    err.body      // bounded snippet of the raw error body
   }
 }
+```
+
+### `err.code` taxonomy
+
+Part of the public (semver-relevant) contract — switch on it in `retryOn` or when mapping to domain errors.
+
+| code | meaning |
+|---|---|
+| `HTTP_ERROR` | non-2xx response with `status` set |
+| `NETWORK_ERROR` | fetch rejected (DNS, connection reset, TLS...) |
+| `TIMEOUT` | aborted by the `timeout()` plugin |
+| `ABORTED` | aborted by a caller-supplied `signal` |
+| `PARSE_ERROR` | extractor failed on a 2xx body (invalid JSON etc.) |
+
+### Custom error bodies — `extractError`
+
+Provider APIs put the actionable message in the error body. `rest({ extractError })` builds the `ApiError` from any non-2xx response:
+
+```ts
+.with(rest({
+  extractError: (response, body) => ({
+    message: (body as any)?.error?.message ?? response.statusText,
+    status: response.status,
+    code: 'HTTP_ERROR',
+  }),
+}))
+```
+
+The default already reads JSON `message` / `error.message`, falls back to `statusText`, and preserves `errors[]`.
+
+## Composition Recipes
+
+Order matters. A short cookbook:
+
+```ts
+// Bounded time, fresh timeout per retry attempt
+createClient(url).with(rest()).with(timeout({ ms: 10_000 })).with(retry())
+// why: retry wraps timeout wraps rest → each attempt gets a new AbortController
+
+// Log every attempt (including retries)
+createClient(url).with(rest()).with(logger()).with(retry())
+// why: retry is outermost, so logger sits inside it and sees each try
+
+// Log only the final outcome
+createClient(url).with(rest()).with(retry()).with(logger())
+// why: logger is outermost, retry is transparent to it
+
+// Refresh-then-retry on 401 exactly once
+createClient(url)
+  .with(rest())
+  .with(sessionAuth({ autoRefresh: true }))
+  .with(retry({ maxRetries: 1, retryOn: (e) => isApiError(e) && e.status === 401 }))
 ```
 
 ## Real-World Examples
@@ -219,6 +299,7 @@ const svc = createClient('http://user-service.internal:3000')
 | `bearerAuth(token)` | Plugin | Static/dynamic bearer auth |
 | `sessionAuth(config?)` | Plugin | Login/refresh/logout lifecycle |
 | `retry(config?)` | Plugin | Exponential backoff retry |
+| `timeout(config?)` | Plugin | Per-attempt request timeout |
 | `logger(config?)` | Plugin | Request/response logging |
 | `memoryStorage()` | Utility | In-memory token storage |
 | `endpoint(opts)` | Helper | Command from raw options |
