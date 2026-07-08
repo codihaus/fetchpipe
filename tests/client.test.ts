@@ -1,14 +1,29 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createClient } from '../src/client.js';
 
 describe('createClient', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	it('creates a client with url and globals', () => {
 		const client = createClient('https://api.example.com');
 
 		expect(client.url.toString()).toBe('https://api.example.com/');
-		expect(client.globals.fetch).toBe(globalThis.fetch);
+		expect(typeof client.globals.fetch).toBe('function');
 		expect(client.globals.URL).toBe(globalThis.URL);
 		expect(client.globals.logger).toBe(globalThis.console);
+	});
+
+	it('resolves the default fetch lazily — honors a globalThis.fetch stubbed after creation', async () => {
+		const client = createClient('https://api.example.com');
+
+		const stub = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+		vi.stubGlobal('fetch', stub);
+
+		await client.globals.fetch('https://api.example.com/x', { method: 'GET' });
+
+		expect(stub).toHaveBeenCalledOnce();
 	});
 
 	it('accepts custom globals', () => {

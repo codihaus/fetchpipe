@@ -1,6 +1,6 @@
 {
   "name": "@codihaus/fetchpipe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Composable, zero-dependency API client SDK foundation",
   "license": "MIT",
   "type": "module",

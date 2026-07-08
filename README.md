@@ -197,6 +197,8 @@ createClient(url, {
 })
 ```
 
+The default `fetch` is resolved lazily on every request, so stubbing `globalThis.fetch` after import (test setup, polyfills) is honored — no import-order gotchas. When you inject a mock `fetch`, return **real `Response` objects** (`new Response(body, { status, headers })`), not partial literals like `{ ok, status, json }` — the extractors read `Content-Type` off `response.headers`.
+
 ## Error Handling
 
 ```ts
